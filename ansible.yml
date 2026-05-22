@@ -1,0 +1,50 @@
+---
+- name: Deploy application to Kubernetes
+  hosts: kubernetes
+  become: yes
+
+  vars:
+    app_name: pipeline-devops
+    docker_image: ralucazaicanu/pipeline-devops
+    image_tag: latest
+
+  tasks:
+    - name: Create deployment folder on Kubernetes server
+      file:
+        path: /home/ubuntu/kubernetes
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy Kubernetes Deployment file
+      copy:
+        src: Deployment.yml
+        dest: /home/ubuntu/kubernetes/Deployment.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Copy Kubernetes Service file
+      copy:
+        src: Service.yml
+        dest: /home/ubuntu/kubernetes/Service.yml
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Apply Kubernetes Deployment
+      command: kubectl apply -f /home/ubuntu/kubernetes/Deployment.yml
+      become_user: ubuntu
+
+    - name: Apply Kubernetes Service
+      command: kubectl apply -f /home/ubuntu/kubernetes/Service.yml
+      become_user: ubuntu
+
+    - name: Update Kubernetes deployment image
+      command: kubectl set image deployment/{{ app_name }} {{ app_name }}={{ docker_image }}:{{ image_tag }}
+      become_user: ubuntu
+
+    - name: Wait for rollout to finish
+      command: kubectl rollout status deployment/{{ app_name }}
+      become_user: ubuntu

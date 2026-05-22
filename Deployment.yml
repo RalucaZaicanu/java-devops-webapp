@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pipeline-devops
+  labels:
+    app: pipeline-devops
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: pipeline-devops
+
+  template:
+    metadata:
+      labels:
+        app: pipeline-devops
+
+    spec:
+      containers:
+        - name: pipeline-devops
+          image: ralucazaicanu/pipeline-devops:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 8080
