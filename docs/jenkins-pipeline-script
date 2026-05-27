@@ -1,0 +1,66 @@
+node {
+    def ANSIBLE_HOST = '172.31.32.234'
+    def APP_DIR = '/home/ubuntu/devops-app'
+    def DOCKER_IMAGE = 'ralucazaicanu/pipeline-devops'
+    def IMAGE_VERSION = "v1.${BUILD_NUMBER}"
+
+    stage('Git checkout') {
+        git branch: 'main', url: 'https://github.com/RalucaZaicanu/java-devops-webapp.git'
+    }
+
+    stage('Sending project to Ansible server over SSH') {
+        sshagent(['ansible-ssh-key']) {
+            sh """
+                ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_HOST} "rm -rf ${APP_DIR} && mkdir -p ${APP_DIR}"
+
+                scp -o StrictHostKeyChecking=no -r Dockerfile pom.xml src Deployment.yml Service.yml ansible.yml inventory.ini ubuntu@172.31.32.234:/home/ubuntu/devops-app/
+            """
+        }
+    }
+
+    stage('Docker Build image') {
+        sshagent(['ansible-ssh-key']) {
+            sh """
+                ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_HOST} "cd ${APP_DIR} && sudo docker image build -t ${DOCKER_IMAGE}:${IMAGE_VERSION} -t ${DOCKER_IMAGE}:latest ."
+            """
+        }
+    }
+
+    stage('Push Docker image to Docker Hub') {
+        sshagent(['ansible-ssh-key']) {
+            withCredentials([string(credentialsId: 'dockerhub_password', variable: 'DOCKERHUB_PASSWORD')]) {
+                sh """
+                    echo "\$DOCKERHUB_PASSWORD" | ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_HOST} "sudo docker login -u ralucazaicanu --password-stdin"
+
+                    ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_HOST} "sudo docker image push ${DOCKER_IMAGE}:${IMAGE_VERSION}"
+
+                    ssh -o StrictHostKeyChecking=no ubuntu@${ANSIBLE_HOST} "sudo docker image push ${DOCKER_IMAGE}:latest"
+                """
+            }
+        }
+    }
+    stage('Copy Kubernetes files from Ansible server to Kubernetes server') {
+    sshagent(['ansible-ssh-key']) {
+        sh '''
+            ssh -o StrictHostKeyChecking=no ubuntu@172.31.32.234 "mkdir -p /home/ubuntu/kubernetes-files"
+
+            ssh -o StrictHostKeyChecking=no ubuntu@172.31.32.234 "scp -o StrictHostKeyChecking=no /home/ubuntu/devops-app/Deployment.yml /home/ubuntu/devops-app/Service.yml ubuntu@172.31.14.74:/home/ubuntu/kubernetes-files/"
+        '''
+        }
+    }
+    stage('Deploy application to Kubernetes') {
+    sshagent(['ansible-ssh-key']) {
+        sh """
+            ssh -o StrictHostKeyChecking=no ubuntu@172.31.32.234 "ssh -o StrictHostKeyChecking=no ubuntu@172.31.14.74 'cd /home/ubuntu/kubernetes-files && kubectl apply -f Deployment.yml && kubectl apply -f Service.yml && kubectl set image deployment/pipeline-devops pipeline-devops=${DOCKER_IMAGE}:${IMAGE_VERSION} && kubectl rollout status deployment/pipeline-devops'"
+        """
+        }
+    }
+    stage('Check Kubernetes deployment') {
+    sshagent(['ansible-ssh-key']) {
+        sh '''
+            ssh -o StrictHostKeyChecking=no ubuntu@172.31.32.234 "ssh -o StrictHostKeyChecking=no ubuntu@172.31.14.74 'kubectl get pods && kubectl get svc'"
+        '''
+        }
+    }
+
+}
